@@ -1,0 +1,200 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Global Helpers ---
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isVerifiedUser() && (
+        request.auth.token.email.lower() == '7ac482@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // --- Validation Blueprints ---
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll(['uid', 'displayName', 'email', 'photoURL', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'displayName', 'email', 'photoURL', 'updatedAt'])
+        && data.uid is string && data.uid == userId && isValidId(data.uid)
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 254
+        && data.photoURL is string && data.photoURL.size() <= 1000
+        && data.updatedAt is timestamp && data.updatedAt == request.time;
+    }
+
+    function isValidAdminRecord(data, adminId) {
+      return data.keys().hasAll(['uid', 'email', 'grantedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'grantedAt'])
+        && data.uid is string && data.uid == adminId && isValidId(data.uid)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 254
+        && data.grantedAt is timestamp && data.grantedAt == request.time;
+    }
+
+    function isValidCharacter(data, characterId) {
+      return data.keys().hasAll(['id', 'name', 'avatar', 'hashtags', 'slogan', 'lore', 'links', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'name', 'avatar', 'hashtags', 'slogan', 'lore', 'links', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id == characterId && isValidId(data.id)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
+        && data.avatar is string && data.avatar.size() <= 300000
+        && data.hashtags is list && data.hashtags.size() <= 15 && (data.hashtags.size() == 0 || data.hashtags[0] is string)
+        && data.slogan is string && data.slogan.size() <= 300
+        && data.lore is string && data.lore.size() <= 20000
+        && data.links is list && data.links.size() <= 10 && (data.links.size() == 0 || data.links[0] is map)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp && data.updatedAt == request.time;
+    }
+
+    function isValidLike(data, userId) {
+      return data.keys().hasAll(['userId', 'createdAt'])
+        && data.keys().hasOnly(['userId', 'createdAt'])
+        && data.userId is string && data.userId == userId && data.userId == request.auth.uid
+        && data.createdAt is timestamp && data.createdAt == request.time;
+    }
+
+    function isValidComment(data, characterId) {
+      return data.keys().hasAll(['characterId', 'userId', 'userName', 'content', 'createdAt'])
+        && data.keys().hasOnly(['characterId', 'userId', 'userName', 'content', 'createdAt'])
+        && data.characterId is string && data.characterId == characterId
+        && data.userId is string && isValidId(data.userId)
+        && data.userName is string && data.userName.size() >= 1 && data.userName.size() <= 100
+        && data.content is string && data.content.size() >= 1 && data.content.size() <= 1000
+        && data.createdAt is timestamp;
+    }
+
+    function isValidTrack(data, trackId) {
+      return data.keys().hasAll(['id', 'title', 'artist', 'sourceType', 'source', 'durationLabel', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'title', 'artist', 'sourceType', 'source', 'durationLabel', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id == trackId && isValidId(data.id)
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 120
+        && data.artist is string && data.artist.size() <= 120
+        && data.sourceType is string && (data.sourceType == 'preset' || data.sourceType == 'url')
+        && data.source is string && data.source.size() >= 1 && data.source.size() <= 500000
+        && data.durationLabel is string && data.durationLabel.size() <= 40
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp && data.updatedAt == request.time;
+    }
+
+    // --- Collection Group Public Read Rules (Non-PII Interaction Counts) ---
+    match /{path=**}/likes/{userId} {
+      allow list: if true;
+    }
+
+    match /{path=**}/comments/{commentId} {
+      allow list: if true;
+    }
+
+    // --- Collection Rules ---
+
+    // Private User Profiles (PII isolated to owner & admin)
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
+      allow create: if isVerifiedUser() && isValidId(userId) && isOwner(userId)
+        && isValidUserProfile(incoming(), userId);
+      allow update: if isVerifiedUser() && isValidId(userId) && isOwner(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'email', 'photoURL', 'updatedAt']);
+      allow delete: if isValidId(userId) && (isOwner(userId) || isAdmin());
+    }
+
+    // Admin Allowlist
+    match /admins/{adminId} {
+      allow get: if isValidId(adminId) && (isOwner(adminId) || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isAdmin() && isValidId(adminId) && isValidAdminRecord(incoming(), adminId);
+      allow update: if false;
+      allow delete: if isAdmin() && isValidId(adminId);
+    }
+
+    // Public Character Showcase (Admin-managed)
+    match /characters/{characterId} {
+      allow get: if isValidId(characterId);
+      allow list: if true;
+      allow create: if isAdmin() && isValidId(characterId)
+        && isValidCharacter(incoming(), characterId)
+        && incoming().createdAt == request.time;
+      allow update: if isAdmin() && isValidId(characterId)
+        && isValidCharacter(incoming(), characterId)
+        && incoming().id == existing().id
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'avatar', 'hashtags', 'slogan', 'lore', 'links', 'updatedAt']);
+      allow delete: if isAdmin() && isValidId(characterId);
+
+      // Character Likes Subcollection
+      match /likes/{userId} {
+        allow get: if isValidId(characterId) && isValidId(userId);
+        allow list: if true;
+        allow create: if isVerifiedUser() && isValidId(characterId) && isValidId(userId)
+          && isOwner(userId)
+          && isValidLike(incoming(), userId)
+          && exists(/databases/$(database)/documents/characters/$(characterId));
+        allow update: if false;
+        allow delete: if isVerifiedUser() && isValidId(characterId) && isValidId(userId)
+          && (isOwner(userId) || isAdmin());
+      }
+
+      // Character Comments Subcollection
+      match /comments/{commentId} {
+        allow get: if isValidId(characterId) && isValidId(commentId);
+        allow list: if true;
+        allow create: if isVerifiedUser() && isValidId(characterId) && isValidId(commentId)
+          && incoming().userId == request.auth.uid
+          && incoming().createdAt == request.time
+          && isValidComment(incoming(), characterId)
+          && exists(/databases/$(database)/documents/characters/$(characterId));
+        allow update: if isVerifiedUser() && isValidId(characterId) && isValidId(commentId)
+          && (existing().userId == request.auth.uid || isAdmin())
+          && isValidComment(incoming(), characterId)
+          && incoming().characterId == existing().characterId
+          && incoming().userId == existing().userId
+          && incoming().createdAt == existing().createdAt
+          && incoming().diff(existing()).affectedKeys().hasOnly(['content']);
+        allow delete: if isVerifiedUser() && isValidId(characterId) && isValidId(commentId)
+          && (existing().userId == request.auth.uid || isAdmin());
+      }
+    }
+
+    // Background Music Tracks (Admin-managed)
+    match /tracks/{trackId} {
+      allow get: if isValidId(trackId);
+      allow list: if true;
+      allow create: if isAdmin() && isValidId(trackId)
+        && isValidTrack(incoming(), trackId)
+        && incoming().createdAt == request.time;
+      allow update: if isAdmin() && isValidId(trackId)
+        && isValidTrack(incoming(), trackId)
+        && incoming().id == existing().id
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'artist', 'sourceType', 'source', 'durationLabel', 'updatedAt']);
+      allow delete: if isAdmin() && isValidId(trackId);
+    }
+  }
+}

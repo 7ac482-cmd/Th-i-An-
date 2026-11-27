@@ -1,0 +1,285 @@
+import { useEffect, useMemo, useState } from 'react';
+import { AdminPage } from './components/AdminPage';
+import { AuthModal } from './components/AuthModal';
+import { CharacterDetailPage } from './components/CharacterDetailPage';
+import { GalleryPage } from './components/GalleryPage';
+import { IntroScreen } from './components/IntroScreen';
+import { MusicBar } from './components/MusicBar';
+import { MusicPage } from './components/MusicPage';
+import { Navbar } from './components/Navbar';
+import { SmokeCanvas } from './components/SmokeCanvas';
+import { useAppStore } from './hooks/useAppStore';
+import type { AppView, MusicTrack } from './types';
+import { audioEngine } from './utils/audioEngine';
+
+export default function App() {
+  const {
+    characters,
+    charsLoading,
+    tracks,
+    likes,
+    comments,
+    user,
+    sfxEnabled,
+    setSfxEnabled,
+    signInWithGoogle,
+    signOut,
+    toggleLike,
+    addComment,
+    deleteComment,
+    upsertCharacter,
+    deleteCharacter,
+    upsertTrack,
+    deleteTrack,
+  } = useAppStore();
+
+  const [activeView, setActiveView] = useState<AppView>('intro');
+  const [selectedCharId, setSelectedCharId] = useState<string | null>(null);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+
+  // Music player state
+  const [currentTrackId, setCurrentTrackId] = useState<string | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [volume, setVolume] = useState(0.45);
+  const [audioNotice, setAudioNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    audioEngine.setSfxEnabled(sfxEnabled);
+  }, [sfxEnabled]);
+
+  useEffect(() => {
+    audioEngine.setVolume(volume);
+  }, [volume]);
+
+  // Stop music immediately if active track is deleted from Firestore
+  useEffect(() => {
+    if (currentTrackId && !tracks.some((t) => t.id === currentTrackId)) {
+      audioEngine.stopMusic();
+      setIsPlaying(false);
+      setCurrentTrackId(null);
+    }
+  }, [tracks, currentTrackId]);
+
+  // Keep hash navigation synchronized for separate character detail pages
+  useEffect(() => {
+    const onHashChange = () => {
+      const hash = window.location.hash;
+      if (hash.startsWith('#/char/')) {
+        const id = decodeURIComponent(hash.slice('#/char/'.length));
+        if (characters.some((c) => c.id === id)) {
+          setSelectedCharId(id);
+          setActiveView('detail');
+        }
+      } else if (hash === '#/gallery' && activeView === 'detail') {
+        setSelectedCharId(null);
+        setActiveView('gallery');
+      }
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, [characters, activeView]);
+
+  const currentTrack = useMemo(() => {
+    if (!tracks.length) return null;
+    if (currentTrackId) {
+      return tracks.find((t) => t.id === currentTrackId) || tracks[0];
+    }
+    return tracks[0];
+  }, [tracks, currentTrackId]);
+
+  const selectedCharacter = useMemo(
+    () => characters.find((c) => c.id === selectedCharId) || null,
+    [characters, selectedCharId]
+  );
+
+  const playSelectedTrack = (track: MusicTrack) => {
+    setAudioNotice(null);
+    setCurrentTrackId(track.id);
+    setIsPlaying(true);
+    audioEngine.playTrack(track, (msg) => {
+      setAudioNotice(msg);
+      const fallback = tracks.find((t) => t.sourceType === 'preset');
+      if (fallback && fallback.id !== track.id) {
+        setCurrentTrackId(fallback.id);
+        audioEngine.playTrack(fallback);
+      } else {
+        setIsPlaying(false);
+      }
+    });
+  };
+
+  const handleEnterSite = () => {
+    audioEngine.playEnter();
+    setActiveView('gallery');
+    window.location.hash = '#/gallery';
+    if (currentTrack) {
+      playSelectedTrack(currentTrack);
+    }
+  };
+
+  const handleTogglePlay = () => {
+    if (!currentTrack) return;
+    if (isPlaying) {
+      audioEngine.stopMusic();
+      setIsPlaying(false);
+    } else {
+      playSelectedTrack(currentTrack);
+    }
+  };
+
+  const handleNextTrack = () => {
+    if (!tracks.length) return;
+    const idx = tracks.findIndex((t) => t.id === currentTrack?.id);
+    const next = tracks[(idx + 1) % tracks.length];
+    playSelectedTrack(next);
+  };
+
+  const handleSelectCharacter = (id: string) => {
+    setSelectedCharId(id);
+    setActiveView('detail');
+    window.location.hash = `#/char/${encodeURIComponent(id)}`;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleNavigate = (view: AppView) => {
+    setActiveView(view);
+    if (view !== 'detail') {
+      setSelectedCharId(null);
+      window.location.hash = `#/${view}`;
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleDeleteCharacter = async (id: string) => {
+    const ok = await deleteCharacter(id);
+    if (ok && selectedCharId === id) {
+      setSelectedCharId(null);
+    }
+    return ok;
+  };
+
+  const handleDeleteTrack = async (id: string) => {
+    if (currentTrack?.id === id) {
+      audioEngine.stopMusic();
+      setIsPlaying(false);
+      setCurrentTrackId(null);
+    }
+    return deleteTrack(id);
+  };
+
+  if (activeView === 'intro') {
+    return <IntroScreen onEnter={handleEnterSite} />;
+  }
+
+  return (
+    <div className="relative flex min-h-[100dvh] w-full flex-col overflow-x-hidden bg-[#030303] text-[#ece5e4]">
+      {/* Main Page distinct pitch-black obsidian background with deep subtle crimson abyss haze */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none fixed inset-0 z-0 bg-[radial-gradient(ellipse_at_top,rgba(82,11,9,0.22),transparent_60%),radial-gradient(ellipse_at_bottom_right,rgba(45,6,6,0.2),transparent_55%)]"
+      />
+      <SmokeCanvas variant="main" />
+
+      <Navbar
+        activeView={activeView}
+        user={user}
+        sfxEnabled={sfxEnabled}
+        onNavigate={handleNavigate}
+        onToggleSfx={() => setSfxEnabled((v) => !v)}
+        onOpenAuth={() => setAuthModalOpen(true)}
+        onSignOut={() => {
+          signOut();
+        }}
+      />
+
+      {audioNotice && (
+        <div className="relative z-20 mx-auto mt-3 max-w-xl rounded-lg border border-[#6e1613] bg-[#160505] px-4 py-2 text-center text-xs text-[#e5b3ae]">
+          {audioNotice}
+        </div>
+      )}
+
+      {/* Main Content Area (Dedicated page switching — no overlay on previous page) */}
+      <main className="relative z-10 flex-1">
+        {activeView === 'gallery' && (
+          <GalleryPage
+            characters={characters}
+            loading={charsLoading}
+            likes={likes}
+            comments={comments}
+            onSelectCharacter={handleSelectCharacter}
+          />
+        )}
+
+        {activeView === 'detail' && selectedCharacter && (
+          <CharacterDetailPage
+            character={selectedCharacter}
+            likes={likes[selectedCharacter.id] || []}
+            comments={comments.filter(
+              (c) => c.characterId === selectedCharacter.id
+            )}
+            user={user}
+            onBack={() => handleNavigate('gallery')}
+            onToggleLike={toggleLike}
+            onAddComment={addComment}
+            onDeleteComment={deleteComment}
+            onRequestAuth={() => setAuthModalOpen(true)}
+          />
+        )}
+
+        {activeView === 'detail' && !selectedCharacter && (
+          <div className="mx-auto max-w-xl px-4 py-20 text-center">
+            <p className="text-sm text-[#9c8685]">
+              Nhân vật này không còn tồn tại hoặc đã bị xoá.
+            </p>
+            <button
+              type="button"
+              onClick={() => handleNavigate('gallery')}
+              className="mt-4 rounded-lg bg-[#8b1814] px-4 py-2 text-xs font-medium text-white cursor-pointer"
+            >
+              Về danh sách nhân vật
+            </button>
+          </div>
+        )}
+
+        {activeView === 'music' && (
+          <MusicPage
+            tracks={tracks}
+            currentTrack={currentTrack}
+            isPlaying={isPlaying}
+            volume={volume}
+            onSelectTrack={playSelectedTrack}
+            onTogglePlay={handleTogglePlay}
+            onChangeVolume={setVolume}
+          />
+        )}
+
+        {activeView === 'admin' && (
+          <AdminPage
+            user={user}
+            characters={characters}
+            tracks={tracks}
+            onUpsertCharacter={upsertCharacter}
+            onDeleteCharacter={handleDeleteCharacter}
+            onUpsertTrack={upsertTrack}
+            onDeleteTrack={handleDeleteTrack}
+            onOpenAuth={() => setAuthModalOpen(true)}
+          />
+        )}
+      </main>
+
+      <MusicBar
+        currentTrack={currentTrack}
+        isPlaying={isPlaying}
+        onTogglePlay={handleTogglePlay}
+        onNextTrack={handleNextTrack}
+        onOpenMusicPage={() => handleNavigate('music')}
+      />
+
+      <AuthModal
+        isOpen={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+        onSignInWithGoogle={signInWithGoogle}
+      />
+    </div>
+  );
+}

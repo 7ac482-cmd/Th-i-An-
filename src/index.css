@@ -1,0 +1,112 @@
+@import "tailwindcss";
+
+@layer base {
+  html,
+  body,
+  #root {
+    background-color: #030303;
+    color: #ece5e4;
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    overflow-x: hidden;
+    max-width: 100vw;
+    min-height: 100dvh;
+  }
+}
+
+.font-display {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+}
+
+.font-mono-num {
+  font-family: 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Subtle dark luminous glow for "Cá Ngộ Độc" title */
+.title-dark-glow {
+  color: #f3eceb;
+  text-shadow:
+    0 0 10px rgba(0, 0, 0, 0.95),
+    0 0 22px rgba(158, 27, 20, 0.55),
+    0 0 42px rgba(120, 12, 10, 0.35),
+    0 2px 6px rgba(0, 0, 0, 1);
+}
+
+.title-dark-glow-subtle {
+  color: #e8dedd;
+  text-shadow:
+    0 0 8px rgba(0, 0, 0, 0.95),
+    0 0 18px rgba(139, 24, 20, 0.45),
+    0 1px 4px rgba(0, 0, 0, 1);
+}
+
+/* Gentle 3D card perspective & floating motion */
+.perspective-stage {
+  perspective: 1200px;
+}
+
+.card-3d {
+  transform-style: preserve-3d;
+  transition: transform 0.55s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.35s ease, box-shadow 0.45s ease;
+}
+
+.card-3d:hover {
+  transform: translateY(-4px) rotateX(1.8deg) rotateY(-1.2deg);
+}
+
+@keyframes floatGentle {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+  50% {
+    transform: translate3d(0, -8px, 12px) rotate(1.2deg);
+  }
+}
+
+@keyframes smokeDrift {
+  0% {
+    transform: translate3d(-3%, 2%, 0) scale(1);
+    opacity: 0.25;
+  }
+  50% {
+    transform: translate3d(3%, -3%, 0) scale(1.06);
+    opacity: 0.45;
+  }
+  100% {
+    transform: translate3d(-3%, 2%, 0) scale(1);
+    opacity: 0.25;
+  }
+}
+
+.animate-float-gentle {
+  animation: floatGentle 7s ease-in-out infinite;
+}
+
+.animate-smoke-drift {
+  animation: smokeDrift 16s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-float-gentle,
+  .animate-smoke-drift,
+  .card-3d:hover {
+    animation: none !important;
+    transform: none !important;
+  }
+}
+
+/* Subtle custom dark scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #050505;
+}
+::-webkit-scrollbar-thumb {
+  background: #2c1010;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #611513;
+}
