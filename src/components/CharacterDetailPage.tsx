@@ -29,6 +29,7 @@ export function CharacterDetailPage({
 }: CharacterDetailPageProps) {
   const [commentText, setCommentText] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const isLiked = user ? likes.includes(user.id) : false;
 
@@ -38,9 +39,14 @@ export function CharacterDetailPage({
       onRequestAuth();
       return;
     }
+    setActionError(null);
     const nextLiked = !isLiked;
     audioEngine.playHeart(nextLiked);
-    await onToggleLike(character.id);
+    try {
+      await onToggleLike(character.id);
+    } catch {
+      setActionError('Không thể cập nhật lượt tim lúc này. Vui lòng thử lại.');
+    }
   };
 
   const handleSubmitComment = async (e: React.FormEvent) => {
@@ -53,9 +59,12 @@ export function CharacterDetailPage({
     if (!commentText.trim() || submitting) return;
     audioEngine.playClick();
     setSubmitting(true);
+    setActionError(null);
     try {
       await onAddComment(character.id, commentText);
       setCommentText('');
+    } catch {
+      setActionError('Không thể gửi bình luận lúc này. Vui lòng thử lại.');
     } finally {
       setSubmitting(false);
     }
@@ -189,6 +198,12 @@ export function CharacterDetailPage({
                 </button>
               )}
             </div>
+
+            {actionError && (
+              <p className="mt-3 rounded-lg border border-[#7f1d1d] bg-[#1c0606] px-3 py-2 text-xs text-[#f0a5a0]">
+                {actionError}
+              </p>
+            )}
 
             <form onSubmit={handleSubmitComment} className="mt-4 flex flex-col gap-3 sm:flex-row">
               <input

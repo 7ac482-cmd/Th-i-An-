@@ -101,6 +101,20 @@ service cloud.firestore {
         && data.updatedAt is timestamp && data.updatedAt == request.time;
     }
 
+    function isValidNotification(data, notificationId) {
+      return data.keys().hasAll(['id', 'type', 'characterId', 'characterName', 'actorId', 'actorName', 'message', 'read', 'createdAt'])
+        && data.keys().hasOnly(['id', 'type', 'characterId', 'characterName', 'actorId', 'actorName', 'message', 'read', 'createdAt'])
+        && data.id is string && data.id == notificationId && isValidId(data.id)
+        && data.type is string && (data.type == 'like' || data.type == 'comment')
+        && data.characterId is string && isValidId(data.characterId)
+        && data.characterName is string && data.characterName.size() >= 1 && data.characterName.size() <= 120
+        && data.actorId is string && isValidId(data.actorId)
+        && data.actorName is string && data.actorName.size() >= 1 && data.actorName.size() <= 100
+        && data.message is string && data.message.size() <= 1000
+        && data.read is bool
+        && data.createdAt is timestamp;
+    }
+
     // --- Collection Group Public Read Rules (Non-PII Interaction Counts) ---
     match /{path=**}/likes/{userId} {
       allow list: if true;
@@ -195,6 +209,30 @@ service cloud.firestore {
         && incoming().createdAt == existing().createdAt
         && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'artist', 'sourceType', 'source', 'durationLabel', 'updatedAt']);
       allow delete: if isAdmin() && isValidId(trackId);
+    }
+
+    // Admin Notifications (Created by verified viewers on like/comment; read/managed strictly by Admin)
+    match /notifications/{notificationId} {
+      allow get: if isAdmin() && isValidId(notificationId);
+      allow list: if isAdmin();
+      allow create: if isVerifiedUser() && isValidId(notificationId)
+        && incoming().actorId == request.auth.uid
+        && incoming().read == false
+        && incoming().createdAt == request.time
+        && isValidNotification(incoming(), notificationId)
+        && exists(/databases/$(database)/documents/characters/$(incoming().characterId));
+      allow update: if isAdmin() && isValidId(notificationId)
+        && isValidNotification(incoming(), notificationId)
+        && incoming().id == existing().id
+        && incoming().type == existing().type
+        && incoming().characterId == existing().characterId
+        && incoming().characterName == existing().characterName
+        && incoming().actorId == existing().actorId
+        && incoming().actorName == existing().actorName
+        && incoming().message == existing().message
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['read']);
+      allow delete: if isAdmin() && isValidId(notificationId);
     }
   }
 }

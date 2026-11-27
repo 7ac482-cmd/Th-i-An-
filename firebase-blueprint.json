@@ -198,6 +198,57 @@
         }
       },
       "required": ["id", "title", "artist", "sourceType", "source", "durationLabel", "createdAt", "updatedAt"]
+    },
+    "AdminNotification": {
+      "title": "AdminNotification",
+      "description": "Real-time notification for admin when viewers like or comment on a character.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["like", "comment"]
+        },
+        "characterId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "characterName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "actorId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "actorName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "read": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "type", "characterId", "characterName", "actorId", "actorName", "message", "read", "createdAt"]
     }
   },
   "firestore": {
@@ -224,6 +275,10 @@
     "/tracks/{trackId}": {
       "schema": { "$ref": "#/entities/MusicTrack" },
       "description": "Background music tracks managed by admins."
+    },
+    "/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/AdminNotification" },
+      "description": "Admin notifications triggered by viewer likes and comments."
     }
   }
 }

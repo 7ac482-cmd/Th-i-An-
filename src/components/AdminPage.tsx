@@ -1,6 +1,5 @@
 import { Lock, Music, Plus, Save, Trash2, Upload, UserPlus } from 'lucide-react';
 import { useState } from 'react';
-import { ADMIN_EMAIL } from '../data/seedData';
 import type {
   CharacterItem,
   CharacterLink,
@@ -95,11 +94,11 @@ export function AdminPage({
             Khu vực Quản trị
           </h1>
           <p className="mt-3 text-sm leading-relaxed text-[#b39d9c]">
-            Chỉ tài khoản Admin ({ADMIN_EMAIL}) mới có quyền thêm, chỉnh sửa hoặc xoá nhân vật và nhạc nền trên Firestore.
+            Chỉ quản trị viên mới có quyền thêm, chỉnh sửa hoặc xoá nhân vật và nhạc nền.
           </p>
           {user && (
             <p className="mt-2 text-xs text-[#9c7977]">
-              Tài khoản hiện tại: {user.email} (chưa có quyền Admin)
+              Tài khoản hiện tại không có quyền quản trị.
             </p>
           )}
           <button

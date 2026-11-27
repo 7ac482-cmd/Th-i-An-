@@ -15,8 +15,9 @@ import {
   serverTimestamp,
   setDoc,
   updateDoc,
+  writeBatch,
 } from 'firebase/firestore';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ADMIN_EMAIL } from '../data/seedData';
 import {
   OperationType,
@@ -26,11 +27,13 @@ import {
   handleFirestoreError,
 } from '../firebase';
 import type {
+  AdminNotification,
   CharacterItem,
   CommentItem,
   MusicTrack,
   UserSession,
 } from '../types';
+import { audioEngine } from '../utils/audioEngine';
 
 const SFX_STORAGE_KEY = 'cangodoc_sfx_v1';
 
@@ -52,6 +55,8 @@ export function useAppStore() {
   const [tracksLoading, setTracksLoading] = useState(true);
   const [likes, setLikes] = useState<Record<string, string[]>>({});
   const [comments, setComments] = useState<CommentItem[]>([]);
+  const [notifications, setNotifications] = useState<AdminNotification[]>([]);
+  const [latestToast, setLatestToast] = useState<AdminNotification | null>(null);
   const [user, setUser] = useState<UserSession | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [sfxEnabled, setSfxEnabled] = useState<boolean>(() => {
@@ -62,6 +67,9 @@ export function useAppStore() {
       return true;
     }
   });
+
+  const initialNotifLoadRef = useRef(true);
+  const seenNotifIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     try {
@@ -76,6 +84,10 @@ export function useAppStore() {
     const unsub = onAuthStateChanged(auth, async (fbUser: FirebaseUser | null) => {
       if (!fbUser) {
         setUser(null);
+        setNotifications([]);
+        setLatestToast(null);
+        initialNotifLoadRef.current = true;
+        seenNotifIdsRef.current.clear();
         setAuthReady(true);
         return;
       }
@@ -126,7 +138,7 @@ export function useAppStore() {
     return () => unsub();
   }, []);
 
-  // Listen to Characters in Firestore (real-time, no phantom fallback when empty)
+  // Listen to Characters in Firestore
   useEffect(() => {
     const unsub = onSnapshot(
       collection(db, 'characters'),
@@ -161,7 +173,7 @@ export function useAppStore() {
     return () => unsub();
   }, []);
 
-  // Listen to Tracks in Firestore (real-time, no phantom fallback when empty)
+  // Listen to Tracks in Firestore
   useEffect(() => {
     const unsub = onSnapshot(
       collection(db, 'tracks'),
@@ -236,6 +248,58 @@ export function useAppStore() {
     return () => unsub();
   }, []);
 
+  // Listen to Admin Notifications in real time (only when signed in as Admin)
+  useEffect(() => {
+    if (!user?.isAdmin) {
+      setNotifications([]);
+      return;
+    }
+
+    initialNotifLoadRef.current = true;
+    seenNotifIdsRef.current.clear();
+
+    const unsub = onSnapshot(
+      collection(db, 'notifications'),
+      (snapshot) => {
+        const list: AdminNotification[] = snapshot.docs.map((d) => {
+          const data = d.data();
+          return {
+            id: String(data.id || d.id),
+            type: data.type === 'comment' ? 'comment' : 'like',
+            characterId: String(data.characterId || ''),
+            characterName: String(data.characterName || 'Nhân vật'),
+            actorId: String(data.actorId || ''),
+            actorName: String(data.actorName || 'Người xem'),
+            message: String(data.message || ''),
+            read: Boolean(data.read),
+            createdAt: toMillis(data.createdAt),
+          };
+        });
+        list.sort((a, b) => b.createdAt - a.createdAt);
+        setNotifications(list);
+
+        if (initialNotifLoadRef.current) {
+          list.forEach((n) => seenNotifIdsRef.current.add(n.id));
+          initialNotifLoadRef.current = false;
+        } else {
+          const newestUnread = list.find(
+            (n) => !n.read && !seenNotifIdsRef.current.has(n.id)
+          );
+          list.forEach((n) => seenNotifIdsRef.current.add(n.id));
+          if (newestUnread) {
+            setLatestToast(newestUnread);
+            audioEngine.playNotification();
+          }
+        }
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.LIST, 'notifications');
+      }
+    );
+
+    return () => unsub();
+  }, [user?.isAdmin]);
+
   const signInWithGoogle = useCallback(async () => {
     const result = await signInWithPopup(auth, googleProvider);
     return result.user;
@@ -252,43 +316,85 @@ export function useAppStore() {
       const likeRef = doc(db, 'characters', characterId, 'likes', user.id);
       const current = likes[characterId] || [];
       const exists = current.includes(user.id);
+      const charName = (
+        characters.find((c) => c.id === characterId)?.name || characterId
+      ).slice(0, 120);
 
       try {
         if (exists) {
           await deleteDoc(likeRef);
         } else {
-          await setDoc(likeRef, {
+          const notifId = sanitizeId(
+            `ntf-like-${characterId}-${user.id}-${Date.now().toString(36)}`
+          );
+          const batch = writeBatch(db);
+          batch.set(likeRef, {
             userId: user.id,
             createdAt: serverTimestamp(),
           });
+          batch.set(doc(db, 'notifications', notifId), {
+            id: notifId,
+            type: 'like',
+            characterId,
+            characterName: charName,
+            actorId: user.id,
+            actorName: user.name.slice(0, 100),
+            message: 'đã thả tim',
+            read: false,
+            createdAt: serverTimestamp(),
+          });
+          await batch.commit();
         }
         return true;
       } catch (error) {
         handleFirestoreError(error, OperationType.WRITE, likePath);
       }
     },
-    [user, likes]
+    [user, likes, characters]
   );
 
   const addComment = useCallback(
     async (characterId: string, content: string) => {
       if (!user || !content.trim()) return null;
-      const commentId = sanitizeId(`cmt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
+      const cleanContent = content.trim().slice(0, 1000);
+      const commentId = sanitizeId(
+        `cmt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+      );
+      const notifId = sanitizeId(
+        `ntf-cmt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+      );
       const commentPath = `characters/${characterId}/comments/${commentId}`;
+      const charName = (
+        characters.find((c) => c.id === characterId)?.name || characterId
+      ).slice(0, 120);
+
       try {
-        await setDoc(doc(db, 'characters', characterId, 'comments', commentId), {
+        const batch = writeBatch(db);
+        batch.set(doc(db, 'characters', characterId, 'comments', commentId), {
           characterId,
           userId: user.id,
           userName: user.name.slice(0, 100),
-          content: content.trim().slice(0, 1000),
+          content: cleanContent,
           createdAt: serverTimestamp(),
         });
+        batch.set(doc(db, 'notifications', notifId), {
+          id: notifId,
+          type: 'comment',
+          characterId,
+          characterName: charName,
+          actorId: user.id,
+          actorName: user.name.slice(0, 100),
+          message: cleanContent,
+          read: false,
+          createdAt: serverTimestamp(),
+        });
+        await batch.commit();
         return commentId;
       } catch (error) {
         handleFirestoreError(error, OperationType.CREATE, commentPath);
       }
     },
-    [user]
+    [user, characters]
   );
 
   const deleteComment = useCallback(
@@ -303,6 +409,53 @@ export function useAppStore() {
     },
     [user]
   );
+
+  const markNotificationRead = useCallback(
+    async (notificationId: string) => {
+      if (!user?.isAdmin) return;
+      const path = `notifications/${notificationId}`;
+      try {
+        await updateDoc(doc(db, 'notifications', notificationId), {
+          read: true,
+        });
+      } catch (error) {
+        handleFirestoreError(error, OperationType.UPDATE, path);
+      }
+    },
+    [user]
+  );
+
+  const markAllNotificationsRead = useCallback(async () => {
+    if (!user?.isAdmin) return;
+    const unread = notifications.filter((n) => !n.read);
+    if (unread.length === 0) return;
+    try {
+      const batch = writeBatch(db);
+      unread.forEach((n) => {
+        batch.update(doc(db, 'notifications', n.id), { read: true });
+      });
+      await batch.commit();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'notifications');
+    }
+  }, [user, notifications]);
+
+  const deleteNotification = useCallback(
+    async (notificationId: string) => {
+      if (!user?.isAdmin) return;
+      const path = `notifications/${notificationId}`;
+      try {
+        await deleteDoc(doc(db, 'notifications', notificationId));
+      } catch (error) {
+        handleFirestoreError(error, OperationType.DELETE, path);
+      }
+    },
+    [user]
+  );
+
+  const dismissToast = useCallback(() => {
+    setLatestToast(null);
+  }, []);
 
   // Admin CRUD: Characters
   const upsertCharacter = useCallback(
@@ -415,6 +568,8 @@ export function useAppStore() {
     tracksLoading,
     likes,
     comments,
+    notifications,
+    latestToast,
     user,
     authReady,
     sfxEnabled,
@@ -424,6 +579,10 @@ export function useAppStore() {
     toggleLike,
     addComment,
     deleteComment,
+    markNotificationRead,
+    markAllNotificationsRead,
+    deleteNotification,
+    dismissToast,
     upsertCharacter,
     deleteCharacter,
     upsertTrack,

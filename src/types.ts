@@ -34,6 +34,18 @@ export interface CommentItem {
   createdAt: number;
 }
 
+export interface AdminNotification {
+  id: string;
+  type: 'like' | 'comment';
+  characterId: string;
+  characterName: string;
+  actorId: string;
+  actorName: string;
+  message: string;
+  read: boolean;
+  createdAt: number;
+}
+
 export interface UserSession {
   id: string;
   name: string;

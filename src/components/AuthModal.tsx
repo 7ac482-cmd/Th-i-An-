@@ -1,6 +1,5 @@
 import { X } from 'lucide-react';
 import { useState } from 'react';
-import { ADMIN_EMAIL } from '../data/seedData';
 import { audioEngine } from '../utils/audioEngine';
 
 interface AuthModalProps {
@@ -65,7 +64,7 @@ export function AuthModal({
           Đăng nhập Google
         </h2>
         <p className="mt-2 text-xs leading-relaxed text-[#a89493]">
-          Kết nối tài khoản Google để đồng bộ hồ sơ trên Firestore, thả tim và bình luận nhân vật. Tài khoản quản trị ({ADMIN_EMAIL}) sẽ tự động mở quyền Admin.
+          Đăng nhập bằng tài khoản Google để thả tim và bình luận nhân vật.
         </p>
 
         {errorMsg && (

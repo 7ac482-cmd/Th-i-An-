@@ -1,3 +1,4 @@
+import { Heart, MessageSquare, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { AdminPage } from './components/AdminPage';
 import { AuthModal } from './components/AuthModal';
@@ -19,6 +20,8 @@ export default function App() {
     tracks,
     likes,
     comments,
+    notifications,
+    latestToast,
     user,
     sfxEnabled,
     setSfxEnabled,
@@ -27,6 +30,10 @@ export default function App() {
     toggleLike,
     addComment,
     deleteComment,
+    markNotificationRead,
+    markAllNotificationsRead,
+    deleteNotification,
+    dismissToast,
     upsertCharacter,
     deleteCharacter,
     upsertTrack,
@@ -50,6 +57,15 @@ export default function App() {
   useEffect(() => {
     audioEngine.setVolume(volume);
   }, [volume]);
+
+  // Auto-hide floating admin notification toast after 6 seconds
+  useEffect(() => {
+    if (!latestToast) return;
+    const timer = window.setTimeout(() => {
+      dismissToast();
+    }, 6000);
+    return () => window.clearTimeout(timer);
+  }, [latestToast, dismissToast]);
 
   // Stop music immediately if active track is deleted from Firestore
   useEffect(() => {
@@ -184,13 +200,62 @@ export default function App() {
         activeView={activeView}
         user={user}
         sfxEnabled={sfxEnabled}
+        notifications={notifications}
         onNavigate={handleNavigate}
+        onSelectCharacter={handleSelectCharacter}
+        onMarkNotificationRead={markNotificationRead}
+        onMarkAllRead={markAllNotificationsRead}
+        onDeleteNotification={deleteNotification}
         onToggleSfx={() => setSfxEnabled((v) => !v)}
         onOpenAuth={() => setAuthModalOpen(true)}
         onSignOut={() => {
           signOut();
         }}
       />
+
+      {/* Real-time Admin Notification Toast */}
+      {user?.isAdmin && latestToast && (
+        <div className="fixed top-16 right-4 z-40 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-[#8b1814]/85 bg-[#0e0404]/95 p-3.5 shadow-[0_14px_40px_rgba(0,0,0,0.9)] backdrop-blur-md">
+          <div className="flex items-start gap-2.5">
+            <div className="mt-0.5 shrink-0">
+              {latestToast.type === 'like' ? (
+                <Heart className="h-4 w-4 fill-[#c9382e] text-[#c9382e]" />
+              ) : (
+                <MessageSquare className="h-4 w-4 text-[#d95348]" />
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                audioEngine.playNavigate();
+                markNotificationRead(latestToast.id);
+                handleSelectCharacter(latestToast.characterId);
+                dismissToast();
+              }}
+              className="min-w-0 flex-1 text-left cursor-pointer"
+            >
+              <p className="text-xs text-[#f2e8e7] leading-snug">
+                <strong>{latestToast.actorName}</strong>{' '}
+                {latestToast.type === 'like' ? 'vừa thả tim' : 'vừa bình luận'}{' '}
+                <span className="text-[#e06d64]">{latestToast.characterName}</span>
+              </p>
+              {latestToast.type === 'comment' && latestToast.message && (
+                <p className="mt-1 line-clamp-2 text-[11px] text-[#baa8a6]">
+                  “{latestToast.message}”
+                </p>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={dismissToast}
+              aria-label="Đóng thông báo"
+              className="shrink-0 p-1 text-[#8f7978] hover:text-white cursor-pointer"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {audioNotice && (
         <div className="relative z-20 mx-auto mt-3 max-w-xl rounded-lg border border-[#6e1613] bg-[#160505] px-4 py-2 text-center text-xs text-[#e5b3ae]">

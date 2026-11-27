@@ -154,6 +154,26 @@ class AudioEngine {
     osc.stop(now + 0.18);
   }
 
+  public playNotification() {
+    if (!this.sfxEnabled) return;
+    const ctx = this.ensureContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    [523.25, 659.25].forEach((freq, idx) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, now + idx * 0.09);
+      gain.gain.setValueAtTime(0.0001, now + idx * 0.09);
+      gain.gain.linearRampToValueAtTime(0.05, now + idx * 0.09 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + idx * 0.09 + 0.35);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now + idx * 0.09);
+      osc.stop(now + idx * 0.09 + 0.38);
+    });
+  }
+
   // Music Player
   public stopMusic() {
     this.isPlaying = false;
