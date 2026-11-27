@@ -199,6 +199,32 @@
       },
       "required": ["id", "title", "artist", "sourceType", "source", "durationLabel", "createdAt", "updatedAt"]
     },
+    "MusicTrackChunk": {
+      "title": "MusicTrackChunk",
+      "description": "Base64 audio data chunk for large uploaded music files.",
+      "type": "object",
+      "properties": {
+        "trackId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "index": {
+          "type": "integer"
+        },
+        "data": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 700000
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["trackId", "index", "data", "createdAt"]
+    },
     "AdminNotification": {
       "title": "AdminNotification",
       "description": "Real-time notification for admin when viewers like or comment on a character.",
@@ -275,6 +301,10 @@
     "/tracks/{trackId}": {
       "schema": { "$ref": "#/entities/MusicTrack" },
       "description": "Background music tracks managed by admins."
+    },
+    "/tracks/{trackId}/chunks/{chunkId}": {
+      "schema": { "$ref": "#/entities/MusicTrackChunk" },
+      "description": "Chunked audio data for large music files uploaded from user devices."
     },
     "/notifications/{notificationId}": {
       "schema": { "$ref": "#/entities/AdminNotification" },

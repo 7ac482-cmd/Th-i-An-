@@ -7,8 +7,11 @@ class AudioEngine {
   private isPlaying = false;
   private activeTrack: MusicTrack | null = null;
 
-  // For custom audio URL playback
+  // For custom audio URL & chunked Firestore playback
   private htmlAudio: HTMLAudioElement | null = null;
+  private chunkResolver: ((source: string) => Promise<string>) | null = null;
+  private resolvedCache = new Map<string, string>();
+  private playSeq = 0;
 
   // For built-in dark ambient synth presets
   private masterGain: GainNode | null = null;
@@ -174,12 +177,44 @@ class AudioEngine {
     });
   }
 
+  public setChunkResolver(resolver: (source: string) => Promise<string>) {
+    this.chunkResolver = resolver;
+  }
+
+  public evictCacheByTrackId(trackId: string) {
+    const prefix = `chunked://${trackId}`;
+    for (const [key, blobUrl] of this.resolvedCache.entries()) {
+      if (key.startsWith(prefix)) {
+        URL.revokeObjectURL(blobUrl);
+        this.resolvedCache.delete(key);
+      }
+    }
+  }
+
   public unlock() {
     this.ensureContext();
+    if (!this.isPlaying && typeof Audio !== 'undefined') {
+      if (!this.htmlAudio) {
+        this.htmlAudio = new Audio();
+      }
+      if (!this.htmlAudio.src) {
+        // Silent 1-sample WAV unlocks the HTMLAudioElement inside user gesture for async chunked playback
+        this.htmlAudio.src =
+          'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+        this.htmlAudio.volume = 0;
+        this.htmlAudio.play().then(() => {
+          if (!this.isPlaying && this.htmlAudio) {
+            this.htmlAudio.pause();
+            this.htmlAudio.currentTime = 0;
+          }
+        }).catch(() => {});
+      }
+    }
   }
 
   // Music Player
   public stopMusic() {
+    this.playSeq += 1;
     this.isPlaying = false;
     if (this.loopTimer !== null) {
       window.clearInterval(this.loopTimer);
@@ -215,6 +250,7 @@ class AudioEngine {
     onEnded?: () => void
   ) {
     this.stopMusic();
+    const seq = this.playSeq;
     this.activeTrack = track;
     this.isPlaying = true;
 
@@ -222,16 +258,51 @@ class AudioEngine {
       if (!this.htmlAudio) {
         this.htmlAudio = new Audio();
       }
-      this.htmlAudio.loop = !onEnded;
-      this.htmlAudio.onended = onEnded ? () => onEnded() : null;
-      this.htmlAudio.src = track.source;
-      this.htmlAudio.volume = this.musicVolume;
-      this.htmlAudio.play().catch((err) => {
-        if (onError) {
-          onError('Không thể tự động phát bài nhạc này. Vui lòng kiểm tra lại link hoặc bấm nút Phát.');
+      const audioEl = this.htmlAudio;
+
+      const startElement = (playableSrc: string) => {
+        if (this.playSeq !== seq || !this.isPlaying) return;
+        audioEl.loop = !onEnded;
+        audioEl.onended = onEnded ? () => onEnded() : null;
+        audioEl.src = playableSrc;
+        audioEl.volume = this.musicVolume;
+        audioEl.play().catch((err) => {
+          if (this.playSeq !== seq) return;
+          if (onError) {
+            onError('Không thể tự động phát bài nhạc này. Vui lòng kiểm tra lại link hoặc bấm nút Phát.');
+          }
+          console.warn('Audio URL play failed:', err);
+        });
+      };
+
+      if (track.source.startsWith('chunked://')) {
+        const cached = this.resolvedCache.get(track.source);
+        if (cached) {
+          startElement(cached);
+          return;
         }
-        console.warn('Audio URL play failed:', err);
-      });
+        if (!this.chunkResolver) {
+          if (onError) {
+            onError('Chưa sẵn sàng tải dữ liệu bài nhạc này.');
+          }
+          return;
+        }
+        this.chunkResolver(track.source)
+          .then((blobUrl) => {
+            this.resolvedCache.set(track.source, blobUrl);
+            startElement(blobUrl);
+          })
+          .catch((err) => {
+            if (this.playSeq !== seq) return;
+            console.warn('Chunked audio load failed:', err);
+            if (onError) {
+              onError('Không thể tải dữ liệu âm thanh của bài nhạc này.');
+            }
+          });
+        return;
+      }
+
+      startElement(track.source);
       return;
     }
 

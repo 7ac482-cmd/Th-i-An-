@@ -48,6 +48,7 @@ export default function App() {
     deleteCharacter,
     upsertTrack,
     deleteTrack,
+    resolveChunkedAudio,
   } = useAppStore();
 
   const [activeView, setActiveView] = useState<AppView>('intro');
@@ -75,6 +76,10 @@ export default function App() {
   useEffect(() => {
     audioEngine.setVolume(volume);
   }, [volume]);
+
+  useEffect(() => {
+    audioEngine.setChunkResolver(resolveChunkedAudio);
+  }, [resolveChunkedAudio]);
 
   // Auto-hide floating admin notification toast after 6 seconds
   useEffect(() => {
@@ -232,6 +237,7 @@ export default function App() {
       setIsPlaying(false);
       setCurrentTrackId(null);
     }
+    audioEngine.evictCacheByTrackId(id);
     return deleteTrack(id);
   };
 

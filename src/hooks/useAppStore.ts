@@ -13,6 +13,7 @@ import {
   deleteDoc,
   doc,
   getDoc,
+  getDocs,
   onSnapshot,
   serverTimestamp,
   setDoc,
@@ -48,6 +49,41 @@ function toMillis(val: unknown): number {
 function sanitizeId(raw: string): string {
   const clean = raw.replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 128);
   return clean || `id-${Date.now()}`;
+}
+
+const CHUNK_BINARY_SIZE = 450 * 1024; // 460,800 bytes -> ~614,400 chars base64 (< 700,000 limit)
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  const sliceSize = 8192;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += sliceSize) {
+    const sub = bytes.subarray(i, i + sliceSize);
+    binary += String.fromCharCode(...sub);
+  }
+  return btoa(binary);
+}
+
+function base64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
+  const binary = atob(base64);
+  const buffer = new ArrayBuffer(binary.length);
+  const bytes = new Uint8Array(buffer);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+async function deleteTrackChunks(trackId: string) {
+  const chunksSnap = await getDocs(collection(db, 'tracks', trackId, 'chunks'));
+  if (chunksSnap.empty) return;
+  for (let i = 0; i < chunksSnap.docs.length; i += 400) {
+    const batch = writeBatch(db);
+    chunksSnap.docs.slice(i, i + 400).forEach((d) => {
+      batch.delete(d.ref);
+    });
+    await batch.commit();
+  }
 }
 
 export function useAppStore() {
@@ -524,26 +560,95 @@ export function useAppStore() {
     [user]
   );
 
-  // Admin CRUD: Music Tracks
+  // Admin CRUD: Music Tracks (supports web links & unlimited-size local audio files via chunking)
   const upsertTrack = useCallback(
-    async (track: MusicTrack) => {
+    async (
+      track: MusicTrack,
+      audioFile?: File | null,
+      onProgress?: (percent: number) => void
+    ) => {
       if (!user?.isAdmin) return false;
       const trackId = sanitizeId(track.id);
       const trackRef = doc(db, 'tracks', trackId);
       const trackPath = `tracks/${trackId}`;
 
-      const payload = {
-        title: track.title.trim().slice(0, 120),
-        artist: track.artist.trim().slice(0, 120),
-        sourceType: track.sourceType,
-        source: track.source.trim().slice(0, 500000),
-        durationLabel: track.durationLabel.trim().slice(0, 40),
-        updatedAt: serverTimestamp(),
-      };
-
       try {
-        const snap = await getDoc(trackRef);
-        if (snap.exists()) {
+        const existingSnap = await getDoc(trackRef);
+        let finalSource = track.source.trim();
+
+        if (audioFile) {
+          const mime = audioFile.type || 'audio/mpeg';
+          // Clean up any previous chunks when replacing audio file
+          await deleteTrackChunks(trackId);
+
+          if (audioFile.size <= 350 * 1024) {
+            const buf = await audioFile.arrayBuffer();
+            finalSource = `data:${mime};base64,${arrayBufferToBase64(buf)}`;
+            onProgress?.(100);
+          } else {
+            const totalChunks = Math.ceil(audioFile.size / CHUNK_BINARY_SIZE);
+            finalSource = `chunked://${trackId}?mime=${encodeURIComponent(mime)}&chunks=${totalChunks}`;
+
+            const parentPayload = {
+              title: track.title.trim().slice(0, 120),
+              artist: track.artist.trim().slice(0, 120),
+              sourceType: 'url' as const,
+              source: finalSource.slice(0, 500000),
+              durationLabel: track.durationLabel.trim().slice(0, 40),
+              updatedAt: serverTimestamp(),
+            };
+
+            if (existingSnap.exists()) {
+              await updateDoc(trackRef, parentPayload);
+            } else {
+              await setDoc(trackRef, {
+                id: trackId,
+                ...parentPayload,
+                createdAt: serverTimestamp(),
+              });
+            }
+
+            // Upload chunks in batches of 4 (~1.8MB per batch) for smooth progress & reliability
+            const BATCH_CHUNK_COUNT = 4;
+            for (let startIdx = 0; startIdx < totalChunks; startIdx += BATCH_CHUNK_COUNT) {
+              const batch = writeBatch(db);
+              const endIdx = Math.min(totalChunks, startIdx + BATCH_CHUNK_COUNT);
+              for (let idx = startIdx; idx < endIdx; idx += 1) {
+                const startByte = idx * CHUNK_BINARY_SIZE;
+                const endByte = Math.min(audioFile.size, startByte + CHUNK_BINARY_SIZE);
+                const sliceBuf = await audioFile.slice(startByte, endByte).arrayBuffer();
+                const b64 = arrayBufferToBase64(sliceBuf);
+                const chunkId = `chunk-${String(idx).padStart(4, '0')}`;
+                batch.set(doc(db, 'tracks', trackId, 'chunks', chunkId), {
+                  trackId,
+                  index: idx,
+                  data: b64,
+                  createdAt: serverTimestamp(),
+                });
+              }
+              await batch.commit();
+              onProgress?.(Math.round((endIdx / totalChunks) * 100));
+            }
+            return true;
+          }
+        } else if (
+          existingSnap.exists() &&
+          String(existingSnap.data().source || '').startsWith('chunked://') &&
+          !finalSource.startsWith('chunked://')
+        ) {
+          await deleteTrackChunks(trackId);
+        }
+
+        const payload = {
+          title: track.title.trim().slice(0, 120),
+          artist: track.artist.trim().slice(0, 120),
+          sourceType: track.sourceType,
+          source: finalSource.slice(0, 500000),
+          durationLabel: track.durationLabel.trim().slice(0, 40),
+          updatedAt: serverTimestamp(),
+        };
+
+        if (existingSnap.exists()) {
           await updateDoc(trackRef, payload);
         } else {
           await setDoc(trackRef, {
@@ -565,6 +670,7 @@ export function useAppStore() {
       if (!user?.isAdmin) return false;
       const trackPath = `tracks/${id}`;
       try {
+        await deleteTrackChunks(id);
         await deleteDoc(doc(db, 'tracks', id));
         return true;
       } catch (error) {
@@ -573,6 +679,25 @@ export function useAppStore() {
     },
     [user]
   );
+
+  const resolveChunkedAudio = useCallback(async (source: string): Promise<string> => {
+    const withoutScheme = source.slice('chunked://'.length);
+    const [rawTrackId, queryString = ''] = withoutScheme.split('?');
+    const trackId = sanitizeId(rawTrackId);
+    const params = new URLSearchParams(queryString);
+    const mime = params.get('mime') || 'audio/mpeg';
+
+    const chunksSnap = await getDocs(collection(db, 'tracks', trackId, 'chunks'));
+    if (chunksSnap.empty) {
+      throw new Error('Không tìm thấy dữ liệu âm thanh cho bài nhạc này.');
+    }
+    const sorted = [...chunksSnap.docs].sort(
+      (a, b) => Number(a.data().index || 0) - Number(b.data().index || 0)
+    );
+    const arrays = sorted.map((d) => base64ToUint8Array(String(d.data().data || '')));
+    const blob = new Blob(arrays, { type: mime });
+    return URL.createObjectURL(blob);
+  }, []);
 
   return {
     characters,
@@ -601,5 +726,6 @@ export function useAppStore() {
     deleteCharacter,
     upsertTrack,
     deleteTrack,
+    resolveChunkedAudio,
   };
 }

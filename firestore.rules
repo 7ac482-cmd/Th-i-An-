@@ -101,6 +101,15 @@ service cloud.firestore {
         && data.updatedAt is timestamp && data.updatedAt == request.time;
     }
 
+    function isValidTrackChunk(data, trackId) {
+      return data.keys().hasAll(['trackId', 'index', 'data', 'createdAt'])
+        && data.keys().hasOnly(['trackId', 'index', 'data', 'createdAt'])
+        && data.trackId is string && data.trackId == trackId && isValidId(data.trackId)
+        && data.index is int && data.index >= 0 && data.index <= 10000
+        && data.data is string && data.data.size() >= 1 && data.data.size() <= 700000
+        && data.createdAt is timestamp;
+    }
+
     function isValidNotification(data, notificationId) {
       return data.keys().hasAll(['id', 'type', 'characterId', 'characterName', 'actorId', 'actorName', 'message', 'read', 'createdAt'])
         && data.keys().hasOnly(['id', 'type', 'characterId', 'characterName', 'actorId', 'actorName', 'message', 'read', 'createdAt'])
@@ -209,6 +218,20 @@ service cloud.firestore {
         && incoming().createdAt == existing().createdAt
         && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'artist', 'sourceType', 'source', 'durationLabel', 'updatedAt']);
       allow delete: if isAdmin() && isValidId(trackId);
+
+      match /chunks/{chunkId} {
+        allow get: if isValidId(trackId) && isValidId(chunkId);
+        allow list: if true;
+        allow create: if isAdmin() && isValidId(trackId) && isValidId(chunkId)
+          && isValidTrackChunk(incoming(), trackId)
+          && incoming().createdAt == request.time
+          && (
+            exists(/databases/$(database)/documents/tracks/$(trackId)) ||
+            existsAfter(/databases/$(database)/documents/tracks/$(trackId))
+          );
+        allow update: if false;
+        allow delete: if isAdmin() && isValidId(trackId) && isValidId(chunkId);
+      }
     }
 
     // Admin Notifications (Created by verified viewers on like/comment; read/managed strictly by Admin)

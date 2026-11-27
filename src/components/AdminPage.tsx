@@ -1,4 +1,4 @@
-import { Lock, Music, Plus, Save, Trash2, Upload, UserPlus } from 'lucide-react';
+import { Lock, Music, Plus, Save, Trash2, Upload, UserPlus, X } from 'lucide-react';
 import { useState } from 'react';
 import type {
   CharacterItem,
@@ -16,7 +16,11 @@ interface AdminPageProps {
     data: Omit<CharacterItem, 'createdAt'> & { createdAt?: number }
   ) => Promise<boolean>;
   onDeleteCharacter: (id: string) => Promise<boolean>;
-  onUpsertTrack: (track: MusicTrack) => Promise<boolean>;
+  onUpsertTrack: (
+    track: MusicTrack,
+    audioFile?: File | null,
+    onProgress?: (percent: number) => void
+  ) => Promise<boolean>;
   onDeleteTrack: (id: string) => Promise<boolean>;
   onOpenAuth: () => void;
 }
@@ -81,6 +85,8 @@ export function AdminPage({
   const [trackTitle, setTrackTitle] = useState('');
   const [trackArtist, setTrackArtist] = useState('');
   const [trackSource, setTrackSource] = useState('');
+  const [pendingAudioFile, setPendingAudioFile] = useState<File | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [preservedDuration, setPreservedDuration] = useState('');
 
   if (!user?.isAdmin) {
@@ -235,6 +241,8 @@ export function AdminPage({
     setTrackTitle('');
     setTrackArtist('');
     setTrackSource('');
+    setPendingAudioFile(null);
+    setUploadProgress(null);
     setPreservedDuration('');
   };
 
@@ -244,6 +252,8 @@ export function AdminPage({
     setTrackTitle(t.title);
     setTrackArtist(t.artist);
     setTrackSource(t.sourceType === 'url' ? t.source : '');
+    setPendingAudioFile(null);
+    setUploadProgress(null);
     setPreservedDuration(t.durationLabel);
   };
 
@@ -251,39 +261,46 @@ export function AdminPage({
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
-    if (file.size > 360 * 1024) {
-      setNotice('Tệp nhạc tải lên nên nhỏ hơn 360KB để lưu trực tiếp, hoặc hãy dán link nhạc trên web.');
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        if (reader.result.length > 495000) {
-          setNotice('Tệp nhạc sau khi mã hoá vượt quá giới hạn lưu trữ, vui lòng chọn tệp nhỏ hơn hoặc dán link nhạc trên web.');
-          return;
-        }
-        setTrackSource(reader.result);
-        setNotice(null);
-      }
-    };
-    reader.readAsDataURL(file);
+    setPendingAudioFile(file);
+    setTrackSource('');
+    setNotice(null);
   };
 
   const handleSaveTrack = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!trackTitle.trim() || !trackSource.trim() || saving) return;
+    if (saving) return;
+    if (!trackTitle.trim()) {
+      setNotice('Vui lòng nhập tên bài nhạc.');
+      return;
+    }
+    if (!pendingAudioFile && !trackSource.trim()) {
+      setNotice('Vui lòng dán link nhạc trên web hoặc chọn tệp nhạc từ máy.');
+      return;
+    }
+
     audioEngine.playClick();
     setSaving(true);
+    setUploadProgress(pendingAudioFile ? 0 : null);
     setNotice(null);
+
+    const trackId = editingTrackId || `track-${Date.now().toString(36)}`;
+    if (editingTrackId) {
+      audioEngine.evictCacheByTrackId(editingTrackId);
+    }
+
     try {
-      await onUpsertTrack({
-        id: editingTrackId || `track-${Date.now().toString(36)}`,
-        title: trackTitle.trim(),
-        artist: trackArtist.trim(),
-        sourceType: 'url',
-        source: trackSource.trim(),
-        durationLabel: editingTrackId ? preservedDuration : '',
-      });
+      await onUpsertTrack(
+        {
+          id: trackId,
+          title: trackTitle.trim(),
+          artist: trackArtist.trim(),
+          sourceType: 'url',
+          source: trackSource.trim(),
+          durationLabel: editingTrackId ? preservedDuration : '',
+        },
+        pendingAudioFile,
+        (pct) => setUploadProgress(pct)
+      );
       resetTrackForm();
       setNotice('Đã lưu bài nhạc lên Firestore.');
     } catch (err) {
@@ -294,6 +311,7 @@ export function AdminPage({
       );
     } finally {
       setSaving(false);
+      setUploadProgress(null);
     }
   };
 
@@ -599,10 +617,20 @@ export function AdminPage({
               <div className="flex gap-2">
                 <input
                   type="text"
-                  required
-                  value={trackSource}
-                  onChange={(e) => setTrackSource(e.target.value)}
-                  placeholder="Dán link nhạc trên web (https://...) hoặc chọn từ máy"
+                  value={trackSource.startsWith('chunked://') ? '' : trackSource}
+                  onChange={(e) => {
+                    setTrackSource(e.target.value);
+                    if (e.target.value.trim()) {
+                      setPendingAudioFile(null);
+                    }
+                  }}
+                  placeholder={
+                    pendingAudioFile
+                      ? 'Đang dùng tệp nhạc đã chọn từ máy'
+                      : trackSource.startsWith('chunked://')
+                        ? 'Đang giữ tệp nhạc trên máy cũ (dán link hoặc chọn tệp mới để thay)'
+                        : 'Dán link nhạc trên web (https://...) hoặc chọn từ máy'
+                  }
                   className="h-10 flex-1 rounded-lg border border-[#3d1110]/70 bg-[#040202] px-3 text-sm text-white focus:border-[#9e1b14] focus:outline-none"
                 />
                 <label className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-[#4a1210] bg-[#120505] px-3 text-xs font-medium text-[#e6d5d4] hover:border-[#9e1b14] cursor-pointer whitespace-nowrap">
@@ -616,6 +644,23 @@ export function AdminPage({
                   />
                 </label>
               </div>
+
+              {pendingAudioFile && (
+                <div className="mt-2 flex items-center justify-between gap-2 rounded-lg border border-[#521210]/70 bg-[#120505] px-3 py-2 text-xs text-[#e5d2d0]">
+                  <span className="truncate">
+                    Tệp đã chọn: <strong>{pendingAudioFile.name}</strong> (
+                    {(pendingAudioFile.size / (1024 * 1024)).toFixed(2)} MB)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setPendingAudioFile(null)}
+                    aria-label="Bỏ chọn tệp nhạc"
+                    className="shrink-0 text-[#c9382e] hover:text-white cursor-pointer"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
             </div>
 
             <button
@@ -626,7 +671,9 @@ export function AdminPage({
               {editingTrackId ? <Save className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
               <span>
                 {saving
-                  ? 'Đang đồng bộ...'
+                  ? uploadProgress !== null
+                    ? `Đang tải nhạc lên (${uploadProgress}%)...`
+                    : 'Đang đồng bộ...'
                   : editingTrackId
                     ? 'Lưu thay đổi'
                     : 'Thêm bài nhạc'}
