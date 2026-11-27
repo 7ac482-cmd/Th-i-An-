@@ -26,6 +26,7 @@ export default function App() {
     sfxEnabled,
     setSfxEnabled,
     signInWithGoogle,
+    signInWithGoogleRedirect,
     signOut,
     toggleLike,
     addComment,
@@ -344,6 +345,7 @@ export default function App() {
         isOpen={authModalOpen}
         onClose={() => setAuthModalOpen(false)}
         onSignInWithGoogle={signInWithGoogle}
+        onSignInWithGoogleRedirect={signInWithGoogleRedirect}
       />
     </div>
   );

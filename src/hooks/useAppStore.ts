@@ -1,6 +1,8 @@
 import {
+  getRedirectResult,
   onAuthStateChanged,
   signInWithPopup,
+  signInWithRedirect,
   signOut as firebaseSignOut,
   type User as FirebaseUser,
 } from 'firebase/auth';
@@ -78,6 +80,13 @@ export function useAppStore() {
       // ignore storage quota errors
     }
   }, [sfxEnabled]);
+
+  // Complete pending redirect sign-in if fallback was used
+  useEffect(() => {
+    getRedirectResult(auth).catch((error) => {
+      console.warn('Redirect sign-in check:', error);
+    });
+  }, []);
 
   // Sync Firebase Auth state & user profile document
   useEffect(() => {
@@ -303,6 +312,10 @@ export function useAppStore() {
   const signInWithGoogle = useCallback(async () => {
     const result = await signInWithPopup(auth, googleProvider);
     return result.user;
+  }, []);
+
+  const signInWithGoogleRedirect = useCallback(async () => {
+    await signInWithRedirect(auth, googleProvider);
   }, []);
 
   const signOut = useCallback(async () => {
@@ -575,6 +588,7 @@ export function useAppStore() {
     sfxEnabled,
     setSfxEnabled,
     signInWithGoogle,
+    signInWithGoogleRedirect,
     signOut,
     toggleLike,
     addComment,

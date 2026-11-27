@@ -6,36 +6,83 @@ interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSignInWithGoogle: () => Promise<unknown>;
+  onSignInWithGoogleRedirect: () => Promise<void>;
 }
 
 export function AuthModal({
   isOpen,
   onClose,
   onSignInWithGoogle,
+  onSignInWithGoogleRedirect,
 }: AuthModalProps) {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [showRedirectFallback, setShowRedirectFallback] = useState(false);
 
   if (!isOpen) return null;
 
+  const formatAuthError = (err: unknown) => {
+    const code =
+      typeof err === 'object' && err !== null && 'code' in err
+        ? String((err as { code?: unknown }).code)
+        : '';
+    const rawMsg = err instanceof Error ? err.message : String(err);
+
+    if (code === 'auth/popup-closed-by-user' || rawMsg.includes('popup-closed-by-user')) {
+      setShowRedirectFallback(true);
+      return 'Cửa sổ đăng nhập Google đã bị đóng trước khi hoàn tất. Bạn có thể bấm lại hoặc dùng chế độ chuyển hướng bên dưới.';
+    }
+    if (code === 'auth/popup-blocked' || rawMsg.includes('popup-blocked')) {
+      setShowRedirectFallback(true);
+      return 'Trình duyệt đang chặn cửa sổ bật lên (popup). Hãy cho phép popup hoặc bấm "Đăng nhập bằng chuyển hướng" bên dưới.';
+    }
+    if (
+      code === 'auth/operation-not-supported-in-this-environment' ||
+      rawMsg.includes('operation-not-supported')
+    ) {
+      setShowRedirectFallback(true);
+      return 'Trình duyệt hiện tại không hỗ trợ cửa sổ popup. Hãy mở bằng Chrome/Safari hoặc dùng chế độ chuyển hướng bên dưới.';
+    }
+    if (code === 'auth/unauthorized-domain' || rawMsg.includes('unauthorized-domain')) {
+      const host = typeof window !== 'undefined' ? window.location.hostname : '';
+      return `Tên miền "${host}" chưa được thêm vào Authorized Domains trong Firebase Console (Authentication → Settings → Authorized domains).`;
+    }
+    if (code === 'auth/operation-not-allowed' || rawMsg.includes('operation-not-allowed')) {
+      return 'Nhà cung cấp Google Sign-In chưa được bật trong Firebase Console (Authentication → Sign-in method).';
+    }
+    if (code === 'auth/network-request-failed' || rawMsg.includes('network-request-failed')) {
+      return 'Lỗi kết nối mạng khi liên hệ Google/Firebase. Vui lòng kiểm tra kết nối và thử lại.';
+    }
+    return `Không thể đăng nhập Google (${code || rawMsg}).`;
+  };
+
   const handleGoogleLogin = async () => {
+    // Trigger popup synchronously inside the user click gesture
+    const loginPromise = onSignInWithGoogle();
     audioEngine.playClick();
     setLoading(true);
     setErrorMsg(null);
     try {
-      await onSignInWithGoogle();
+      await loginPromise;
       audioEngine.playEnter();
       onClose();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('popup-closed-by-user')) {
-        setErrorMsg('Bạn đã đóng cửa sổ đăng nhập Google.');
-      } else if (msg.includes('popup-blocked')) {
-        setErrorMsg('Trình duyệt đang chặn cửa sổ bật lên. Vui lòng cho phép popup để đăng nhập Google.');
-      } else {
-        setErrorMsg('Không thể đăng nhập Google lúc này. Vui lòng thử lại.');
-      }
+      console.error('Google Sign-In error:', err);
+      setErrorMsg(formatAuthError(err));
     } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRedirectLogin = async () => {
+    audioEngine.playClick();
+    setLoading(true);
+    setErrorMsg(null);
+    try {
+      await onSignInWithGoogleRedirect();
+    } catch (err) {
+      console.error('Google Redirect Sign-In error:', err);
+      setErrorMsg(formatAuthError(err));
       setLoading(false);
     }
   };
@@ -68,7 +115,7 @@ export function AuthModal({
         </p>
 
         {errorMsg && (
-          <p className="mt-4 rounded-lg border border-[#7f1d1d] bg-[#1c0606] px-3 py-2 text-xs text-[#f0a5a0]">
+          <p className="mt-4 rounded-lg border border-[#7f1d1d] bg-[#1c0606] px-3 py-2 text-xs leading-relaxed text-[#f0a5a0]">
             {errorMsg}
           </p>
         )}
@@ -87,6 +134,17 @@ export function AuthModal({
           </svg>
           <span>{loading ? 'Đang kết nối Google...' : 'Tiếp tục với Google'}</span>
         </button>
+
+        {showRedirectFallback && (
+          <button
+            type="button"
+            disabled={loading}
+            onClick={handleRedirectLogin}
+            className="mt-3 flex h-10 w-full items-center justify-center rounded-lg border border-[#3d1110] bg-[#0a0404] px-4 text-xs font-medium text-[#d6c5c4] transition-colors hover:border-[#9e1b14] hover:text-white disabled:opacity-50 cursor-pointer"
+          >
+            Đăng nhập bằng chuyển hướng (Redirect)
+          </button>
+        )}
       </div>
     </div>
   );
