@@ -174,6 +174,10 @@ class AudioEngine {
     });
   }
 
+  public unlock() {
+    this.ensureContext();
+  }
+
   // Music Player
   public stopMusic() {
     this.isPlaying = false;
@@ -199,12 +203,17 @@ class AudioEngine {
       this.masterGain = null;
     }
     if (this.htmlAudio) {
+      this.htmlAudio.onended = null;
       this.htmlAudio.pause();
       this.htmlAudio.currentTime = 0;
     }
   }
 
-  public playTrack(track: MusicTrack, onError?: (msg: string) => void) {
+  public playTrack(
+    track: MusicTrack,
+    onError?: (msg: string) => void,
+    onEnded?: () => void
+  ) {
     this.stopMusic();
     this.activeTrack = track;
     this.isPlaying = true;
@@ -212,14 +221,14 @@ class AudioEngine {
     if (track.sourceType === 'url') {
       if (!this.htmlAudio) {
         this.htmlAudio = new Audio();
-        this.htmlAudio.loop = true;
-        this.htmlAudio.crossOrigin = 'anonymous';
       }
+      this.htmlAudio.loop = !onEnded;
+      this.htmlAudio.onended = onEnded ? () => onEnded() : null;
       this.htmlAudio.src = track.source;
       this.htmlAudio.volume = this.musicVolume;
       this.htmlAudio.play().catch((err) => {
         if (onError) {
-          onError('Không thể phát đường dẫn âm thanh này, chuyển sang chế độ nhạc nền mặc định.');
+          onError('Không thể tự động phát bài nhạc này. Vui lòng kiểm tra lại link hoặc bấm nút Phát.');
         }
         console.warn('Audio URL play failed:', err);
       });

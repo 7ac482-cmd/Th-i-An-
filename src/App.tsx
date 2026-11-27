@@ -1,5 +1,5 @@
 import { Heart, MessageSquare, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AdminPage } from './components/AdminPage';
 import { AuthModal } from './components/AuthModal';
 import { CharacterDetailPage } from './components/CharacterDetailPage';
@@ -12,6 +12,15 @@ import { SmokeCanvas } from './components/SmokeCanvas';
 import { useAppStore } from './hooks/useAppStore';
 import type { AppView, MusicTrack } from './types';
 import { audioEngine } from './utils/audioEngine';
+
+function pickRandomTrack(trackList: MusicTrack[], excludeId?: string): MusicTrack | null {
+  if (!trackList.length) return null;
+  const pool =
+    excludeId && trackList.length > 1
+      ? trackList.filter((t) => t.id !== excludeId)
+      : trackList;
+  return pool[Math.floor(Math.random() * pool.length)] || null;
+}
 
 export default function App() {
   const {
@@ -50,6 +59,14 @@ export default function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [volume, setVolume] = useState(0.45);
   const [audioNotice, setAudioNotice] = useState<string | null>(null);
+
+  const tracksRef = useRef<MusicTrack[]>(tracks);
+  const wantsAutoPlayRef = useRef(false);
+  const hasAutoPlayedRef = useRef(false);
+
+  useEffect(() => {
+    tracksRef.current = tracks;
+  }, [tracks]);
 
   useEffect(() => {
     audioEngine.setSfxEnabled(sfxEnabled);
@@ -109,28 +126,61 @@ export default function App() {
     [characters, selectedCharId]
   );
 
-  const playSelectedTrack = (track: MusicTrack) => {
+  const playSelectedTrack = useCallback((track: MusicTrack) => {
     setAudioNotice(null);
     setCurrentTrackId(track.id);
     setIsPlaying(true);
-    audioEngine.playTrack(track, (msg) => {
-      setAudioNotice(msg);
-      const fallback = tracks.find((t) => t.sourceType === 'preset');
-      if (fallback && fallback.id !== track.id) {
-        setCurrentTrackId(fallback.id);
-        audioEngine.playTrack(fallback);
-      } else {
+
+    const handleTrackEnded =
+      tracksRef.current.length > 1
+        ? () => {
+            const nextRandom = pickRandomTrack(tracksRef.current, track.id);
+            if (nextRandom) {
+              playSelectedTrack(nextRandom);
+            }
+          }
+        : undefined;
+
+    audioEngine.playTrack(
+      track,
+      (msg) => {
+        setAudioNotice(msg);
         setIsPlaying(false);
+      },
+      handleTrackEnded
+    );
+  }, []);
+
+  // If user entered before tracks finished loading from Firestore, start random playback as soon as tracks arrive
+  useEffect(() => {
+    if (
+      activeView !== 'intro' &&
+      wantsAutoPlayRef.current &&
+      !hasAutoPlayedRef.current &&
+      tracks.length > 0
+    ) {
+      const randomTrack = pickRandomTrack(tracks);
+      if (randomTrack) {
+        hasAutoPlayedRef.current = true;
+        wantsAutoPlayRef.current = false;
+        playSelectedTrack(randomTrack);
       }
-    });
-  };
+    }
+  }, [activeView, tracks, playSelectedTrack]);
 
   const handleEnterSite = () => {
     audioEngine.playEnter();
+    audioEngine.unlock();
     setActiveView('gallery');
     window.location.hash = '#/gallery';
-    if (currentTrack) {
-      playSelectedTrack(currentTrack);
+    wantsAutoPlayRef.current = true;
+    if (tracks.length > 0) {
+      const randomTrack = pickRandomTrack(tracks);
+      if (randomTrack) {
+        hasAutoPlayedRef.current = true;
+        wantsAutoPlayRef.current = false;
+        playSelectedTrack(randomTrack);
+      }
     }
   };
 
@@ -146,9 +196,10 @@ export default function App() {
 
   const handleNextTrack = () => {
     if (!tracks.length) return;
-    const idx = tracks.findIndex((t) => t.id === currentTrack?.id);
-    const next = tracks[(idx + 1) % tracks.length];
-    playSelectedTrack(next);
+    const next = pickRandomTrack(tracks, currentTrack?.id);
+    if (next) {
+      playSelectedTrack(next);
+    }
   };
 
   const handleSelectCharacter = (id: string) => {

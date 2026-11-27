@@ -3,7 +3,6 @@ import { useState } from 'react';
 import type {
   CharacterItem,
   CharacterLink,
-  MusicSourceType,
   MusicTrack,
   UserSession,
 } from '../types';
@@ -81,9 +80,8 @@ export function AdminPage({
   const [editingTrackId, setEditingTrackId] = useState<string | null>(null);
   const [trackTitle, setTrackTitle] = useState('');
   const [trackArtist, setTrackArtist] = useState('');
-  const [trackSourceType, setTrackSourceType] = useState<MusicSourceType>('url');
   const [trackSource, setTrackSource] = useState('');
-  const [trackDuration, setTrackDuration] = useState('');
+  const [preservedDuration, setPreservedDuration] = useState('');
 
   if (!user?.isAdmin) {
     return (
@@ -236,9 +234,8 @@ export function AdminPage({
     setEditingTrackId(null);
     setTrackTitle('');
     setTrackArtist('');
-    setTrackSourceType('url');
     setTrackSource('');
-    setTrackDuration('');
+    setPreservedDuration('');
   };
 
   const handleEditTrack = (t: MusicTrack) => {
@@ -246,22 +243,25 @@ export function AdminPage({
     setEditingTrackId(t.id);
     setTrackTitle(t.title);
     setTrackArtist(t.artist);
-    setTrackSourceType(t.sourceType);
-    setTrackSource(t.source);
-    setTrackDuration(t.durationLabel);
+    setTrackSource(t.sourceType === 'url' ? t.source : '');
+    setPreservedDuration(t.durationLabel);
   };
 
   const handleAudioFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
-    if (file.size > 350 * 1024) {
-      setNotice('Tệp nhạc tải lên nên nhỏ hơn 350KB để lưu vừa Firestore, hoặc hãy dán link MP3 trực tiếp.');
+    if (file.size > 360 * 1024) {
+      setNotice('Tệp nhạc tải lên nên nhỏ hơn 360KB để lưu trực tiếp, hoặc hãy dán link nhạc trên web.');
       return;
     }
     const reader = new FileReader();
     reader.onload = () => {
       if (typeof reader.result === 'string') {
-        setTrackSourceType('url');
+        if (reader.result.length > 495000) {
+          setNotice('Tệp nhạc sau khi mã hoá vượt quá giới hạn lưu trữ, vui lòng chọn tệp nhỏ hơn hoặc dán link nhạc trên web.');
+          return;
+        }
         setTrackSource(reader.result);
         setNotice(null);
       }
@@ -280,9 +280,9 @@ export function AdminPage({
         id: editingTrackId || `track-${Date.now().toString(36)}`,
         title: trackTitle.trim(),
         artist: trackArtist.trim(),
-        sourceType: trackSourceType,
+        sourceType: 'url',
         source: trackSource.trim(),
-        durationLabel: trackDuration.trim(),
+        durationLabel: editingTrackId ? preservedDuration : '',
       });
       resetTrackForm();
       setNotice('Đã lưu bài nhạc lên Firestore.');
@@ -594,76 +594,28 @@ export function AdminPage({
 
             <div>
               <label className="block text-xs text-[#b5a19f] mb-1.5">
-                Loại nguồn nhạc
+                Nhạc (link trên web hoặc chọn tệp nhạc trên máy) *
               </label>
-              <select
-                value={trackSourceType}
-                onChange={(e) =>
-                  setTrackSourceType(e.target.value as MusicSourceType)
-                }
-                className="h-10 w-full rounded-lg border border-[#3d1110]/70 bg-[#040202] px-3 text-sm text-white focus:border-[#9e1b14] focus:outline-none"
-              >
-                <option value="url">Đường dẫn âm thanh (URL) / Tải tệp nhạc</option>
-                <option value="preset">Nhạc nền tổng hợp có sẵn</option>
-              </select>
-            </div>
-
-            {trackSourceType === 'preset' ? (
-              <div>
-                <label className="block text-xs text-[#b5a19f] mb-1.5">
-                  Chọn mẫu âm thanh
-                </label>
-                <select
+              <div className="flex gap-2">
+                <input
+                  type="text"
                   required
                   value={trackSource}
                   onChange={(e) => setTrackSource(e.target.value)}
-                  className="h-10 w-full rounded-lg border border-[#3d1110]/70 bg-[#040202] px-3 text-sm text-white focus:border-[#9e1b14] focus:outline-none"
-                >
-                  <option value="">-- Chọn mẫu --</option>
-                  <option value="crimson-butterflies">Huyết Điệp (Ambient Đỏ Đen)</option>
-                  <option value="obsidian-drift">Trầm Tích (Huyền bí sâu lắng)</option>
-                  <option value="velvet-ash">Tro Tàn (Piano Pad nhẹ nhàng)</option>
-                </select>
-              </div>
-            ) : (
-              <div>
-                <label className="block text-xs text-[#b5a19f] mb-1.5">
-                  Link nhạc (URL) hoặc tải tệp âm thanh (&lt;350KB) *
-                </label>
-                <div className="flex gap-2">
+                  placeholder="Dán link nhạc trên web (https://...) hoặc chọn từ máy"
+                  className="h-10 flex-1 rounded-lg border border-[#3d1110]/70 bg-[#040202] px-3 text-sm text-white focus:border-[#9e1b14] focus:outline-none"
+                />
+                <label className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-[#4a1210] bg-[#120505] px-3 text-xs font-medium text-[#e6d5d4] hover:border-[#9e1b14] cursor-pointer whitespace-nowrap">
+                  <Upload className="h-3.5 w-3.5" />
+                  <span>Chọn từ máy</span>
                   <input
-                    type="text"
-                    required
-                    value={trackSource}
-                    onChange={(e) => setTrackSource(e.target.value)}
-                    placeholder="https://..."
-                    className="h-10 flex-1 rounded-lg border border-[#3d1110]/70 bg-[#040202] px-3 text-sm text-white focus:border-[#9e1b14] focus:outline-none"
+                    type="file"
+                    accept="audio/*"
+                    onChange={handleAudioFile}
+                    className="hidden"
                   />
-                  <label className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-[#4a1210] bg-[#120505] px-3 text-xs font-medium text-[#e6d5d4] hover:border-[#9e1b14] cursor-pointer whitespace-nowrap">
-                    <Upload className="h-3.5 w-3.5" />
-                    <span>Tải nhạc</span>
-                    <input
-                      type="file"
-                      accept="audio/*"
-                      onChange={handleAudioFile}
-                      className="hidden"
-                    />
-                  </label>
-                </div>
+                </label>
               </div>
-            )}
-
-            <div>
-              <label className="block text-xs text-[#b5a19f] mb-1.5">
-                Thời lượng hiển thị
-              </label>
-              <input
-                type="text"
-                maxLength={40}
-                value={trackDuration}
-                onChange={(e) => setTrackDuration(e.target.value)}
-                className="h-10 w-full rounded-lg border border-[#3d1110]/70 bg-[#040202] px-3 text-sm text-white focus:border-[#9e1b14] focus:outline-none"
-              />
             </div>
 
             <button
