@@ -273,7 +273,7 @@ export default function App() {
 
       {/* Real-time Admin Notification Toast */}
       {user?.isAdmin && latestToast && (
-        <div className="fixed top-16 right-4 z-40 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-[#8b1814]/85 bg-[#0e0404]/95 p-3.5 shadow-[0_14px_40px_rgba(0,0,0,0.9)] backdrop-blur-md">
+        <div className="fixed top-16 inset-x-3 sm:inset-x-auto sm:right-4 sm:w-96 z-40 rounded-xl border border-[#8b1814]/85 bg-[#0e0404]/95 p-3.5 shadow-[0_14px_40px_rgba(0,0,0,0.9)] backdrop-blur-md">
           <div className="flex items-start gap-2.5">
             <div className="mt-0.5 shrink-0">
               {latestToast.type === 'like' ? (
@@ -292,13 +292,13 @@ export default function App() {
               }}
               className="min-w-0 flex-1 text-left cursor-pointer"
             >
-              <p className="text-xs text-[#f2e8e7] leading-snug">
+              <p className="text-xs text-[#f2e8e7] leading-snug break-words">
                 <strong>{latestToast.actorName}</strong>{' '}
                 {latestToast.type === 'like' ? 'vừa thả tim' : 'vừa bình luận'}{' '}
                 <span className="text-[#e06d64]">{latestToast.characterName}</span>
               </p>
               {latestToast.type === 'comment' && latestToast.message && (
-                <p className="mt-1 line-clamp-2 text-[11px] text-[#baa8a6]">
+                <p className="mt-1 line-clamp-2 whitespace-pre-line break-words text-[11px] text-[#baa8a6]">
                   “{latestToast.message}”
                 </p>
               )}

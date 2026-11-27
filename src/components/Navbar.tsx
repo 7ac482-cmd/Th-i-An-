@@ -141,27 +141,40 @@ export function Navbar({
               </button>
 
               {notifOpen && (
-                <div className="absolute right-0 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-2xl border border-[#521210]/80 bg-[#080303] shadow-[0_20px_50px_rgba(0,0,0,0.95)] overflow-hidden">
-                  <div className="flex items-center justify-between border-b border-[#2e0c0b] px-4 py-3">
+                <div className="fixed inset-x-3 top-16 z-50 sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-96 sm:max-w-[calc(100vw-2rem)] rounded-2xl border border-[#6e1613]/85 bg-[#080303]/98 shadow-[0_24px_60px_rgba(0,0,0,0.96)] backdrop-blur-md overflow-hidden">
+                  <div className="flex items-center justify-between gap-2 border-b border-[#2e0c0b] px-4 py-3">
                     <span className="text-xs font-semibold text-[#f2e8e7]">
                       Thông báo ({unreadCount} chưa đọc)
                     </span>
-                    {unreadCount > 0 && (
+                    <div className="flex items-center gap-3 shrink-0">
+                      {unreadCount > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            audioEngine.playClick();
+                            onMarkAllRead();
+                          }}
+                          className="inline-flex items-center gap-1 text-[11px] text-[#e05d52] hover:underline cursor-pointer"
+                        >
+                          <CheckCheck className="h-3.5 w-3.5" />
+                          <span>Đã đọc hết</span>
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => {
                           audioEngine.playClick();
-                          onMarkAllRead();
+                          setNotifOpen(false);
                         }}
-                        className="inline-flex items-center gap-1 text-[11px] text-[#d95348] hover:underline cursor-pointer"
+                        aria-label="Đóng thông báo"
+                        className="rounded-md p-1 text-[#8f7978] hover:bg-[#1a0707] hover:text-white cursor-pointer"
                       >
-                        <CheckCheck className="h-3.5 w-3.5" />
-                        <span>Đã đọc tất cả</span>
+                        <X className="h-3.5 w-3.5" />
                       </button>
-                    )}
+                    </div>
                   </div>
 
-                  <div className="max-h-80 overflow-y-auto divide-y divide-[#240908]">
+                  <div className="max-h-[min(68dvh,24rem)] overflow-y-auto divide-y divide-[#240908]">
                     {notifications.length === 0 ? (
                       <p className="px-4 py-8 text-center text-xs text-[#8f7978]">
                         Chưa có thông báo thả tim hay bình luận nào.
@@ -170,15 +183,15 @@ export function Navbar({
                       notifications.map((n) => (
                         <div
                           key={n.id}
-                          className={`flex items-start gap-2.5 px-4 py-3 transition-colors ${
+                          className={`flex items-start gap-3 px-4 py-3.5 transition-colors ${
                             n.read ? 'bg-[#070303]' : 'bg-[#170606]'
                           }`}
                         >
                           <div className="mt-0.5 shrink-0">
                             {n.type === 'like' ? (
-                              <Heart className="h-3.5 w-3.5 fill-[#c9382e] text-[#c9382e]" />
+                              <Heart className="h-4 w-4 fill-[#c9382e] text-[#c9382e]" />
                             ) : (
-                              <MessageSquare className="h-3.5 w-3.5 text-[#d95348]" />
+                              <MessageSquare className="h-4 w-4 text-[#d95348]" />
                             )}
                           </div>
                           <button
@@ -191,17 +204,23 @@ export function Navbar({
                             }}
                             className="min-w-0 flex-1 text-left cursor-pointer"
                           >
-                            <p className="text-xs text-[#efe4e3] leading-snug">
-                              <strong className="font-medium">{n.actorName}</strong>{' '}
+                            <p className="text-xs text-[#f2e8e7] leading-relaxed break-words">
+                              {!n.read && (
+                                <span
+                                  aria-hidden="true"
+                                  className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-[#e0483d] align-middle"
+                                />
+                              )}
+                              <strong className="font-semibold text-white">{n.actorName}</strong>{' '}
                               {n.type === 'like' ? 'đã thả tim' : 'đã bình luận về'}{' '}
-                              <span className="text-[#e06d64]">{n.characterName}</span>
+                              <span className="font-medium text-[#e6736a]">{n.characterName}</span>
                             </p>
                             {n.type === 'comment' && n.message && (
-                              <p className="mt-1 line-clamp-2 text-[11px] text-[#baa8a6]">
-                                “{n.message}”
+                              <p className="mt-1.5 line-clamp-3 whitespace-pre-line break-words rounded-lg border border-[#2c0d0c]/70 bg-[#0d0505] px-2.5 py-1.5 text-xs leading-relaxed text-[#cfc0be]">
+                                {n.message}
                               </p>
                             )}
-                            <p className="mt-1 font-mono-num text-[10px] text-[#7d6968]">
+                            <p className="mt-1.5 font-mono-num text-[10px] text-[#8a7574]">
                               {new Date(n.createdAt).toLocaleString('vi-VN')}
                             </p>
                           </button>
@@ -212,9 +231,9 @@ export function Navbar({
                               onDeleteNotification(n.id);
                             }}
                             aria-label="Xoá thông báo"
-                            className="shrink-0 p-1 text-[#7d6968] hover:text-[#e0564b] cursor-pointer"
+                            className="shrink-0 rounded-md p-1.5 text-[#7d6968] hover:bg-[#1e0807] hover:text-[#e0564b] cursor-pointer"
                           >
-                            <Trash2 className="h-3 w-3" />
+                            <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </div>
                       ))

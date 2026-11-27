@@ -1,5 +1,5 @@
 import { ArrowLeft, ExternalLink, Heart, MessageSquare, Send, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { CharacterItem, CommentItem, UserSession } from '../types';
 import { audioEngine } from '../utils/audioEngine';
 import { AvatarFrame } from './AvatarFrame';
@@ -30,8 +30,16 @@ export function CharacterDetailPage({
   const [commentText, setCommentText] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const isLiked = user ? likes.includes(user.id) : false;
+
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(Math.max(el.scrollHeight, 104), 280)}px`;
+  }, [commentText]);
 
   const handleHeart = async () => {
     if (!user) {
@@ -177,108 +185,136 @@ export function CharacterDetailPage({
               </div>
             </div>
           )}
-
-          {/* Comments Section */}
-          <div className="mt-10 border-t border-[#2a0b0a] pt-8">
-            <div className="flex items-center justify-between">
-              <h2 className="flex items-center gap-2 text-sm font-semibold text-[#efe4e3]">
-                <MessageSquare className="h-4 w-4 text-[#c9382e]" />
-                <span>Bình luận ({comments.length})</span>
-              </h2>
-              {!user && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    audioEngine.playClick();
-                    onRequestAuth();
-                  }}
-                  className="text-xs font-medium text-[#d95348] hover:underline cursor-pointer"
-                >
-                  Đăng nhập Google để bình luận
-                </button>
-              )}
-            </div>
-
-            {actionError && (
-              <p className="mt-3 rounded-lg border border-[#7f1d1d] bg-[#1c0606] px-3 py-2 text-xs text-[#f0a5a0]">
-                {actionError}
-              </p>
-            )}
-
-            <form onSubmit={handleSubmitComment} className="mt-4 flex flex-col gap-3 sm:flex-row">
-              <input
-                type="text"
-                maxLength={1000}
-                value={commentText}
-                onChange={(e) => setCommentText(e.target.value)}
-                placeholder={
-                  user
-                    ? `Viết bình luận với tư cách ${user.name}...`
-                    : 'Đăng nhập Google để viết bình luận...'
-                }
-                className="h-11 flex-1 rounded-lg border border-[#3d1110]/70 bg-[#080303] px-3.5 text-sm text-[#efe5e4] placeholder:text-[#6e5b5a] focus:border-[#9e1b14] focus:outline-none"
-              />
-              <button
-                type="submit"
-                disabled={submitting}
-                onMouseEnter={() => audioEngine.playHover()}
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-[#8b1814] px-5 text-sm font-medium text-white transition-colors hover:bg-[#a81f1a] disabled:opacity-50 whitespace-nowrap shrink-0 cursor-pointer"
-              >
-                <Send className="h-4 w-4" />
-                <span>{submitting ? 'Đang gửi...' : 'Gửi'}</span>
-              </button>
-            </form>
-
-            <div className="mt-6 space-y-3">
-              {comments.length === 0 ? (
-                <p className="text-xs text-[#7d6968]">
-                  Chưa có bình luận nào. Hãy là người đầu tiên để lại dấu ấn.
-                </p>
-              ) : (
-                comments.map((cmt) => {
-                  const canDelete = user && (user.isAdmin || user.id === cmt.userId);
-                  return (
-                    <div
-                      key={cmt.id}
-                      className="rounded-xl border border-[#2b0c0b] bg-[#070303] px-4 py-3"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 text-xs">
-                          <span className="font-medium text-[#eadede]">
-                            {cmt.userName}
-                          </span>
-                          <span aria-hidden="true" className="text-[#5e4c4b]">
-                            ·
-                          </span>
-                          <span className="text-[#7d6968] font-mono-num">
-                            {new Date(cmt.createdAt).toLocaleDateString('vi-VN')}
-                          </span>
-                        </div>
-                        {canDelete && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              audioEngine.playClick();
-                              onDeleteComment(character.id, cmt.id);
-                            }}
-                            aria-label="Xóa bình luận"
-                            className="text-[#7d6968] hover:text-[#e0564b] cursor-pointer"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                      </div>
-                      <p className="mt-1.5 text-sm text-[#cbbcbc] leading-relaxed">
-                        {cmt.content}
-                      </p>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
         </div>
       </div>
+
+      {/* Expanded Full-Width Comments Section */}
+      <section className="mt-12 border-t border-[#320d0c] pt-8">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="flex items-center gap-2.5 text-base font-semibold text-[#f4eae9]">
+            <MessageSquare className="h-4.5 w-4.5 text-[#c9382e]" />
+            <span>Bình luận ({comments.length})</span>
+          </h2>
+          {!user && (
+            <button
+              type="button"
+              onClick={() => {
+                audioEngine.playClick();
+                onRequestAuth();
+              }}
+              className="text-xs font-medium text-[#e05d52] hover:underline cursor-pointer"
+            >
+              Đăng nhập Google để bình luận
+            </button>
+          )}
+        </div>
+
+        {actionError && (
+          <p className="mt-4 rounded-lg border border-[#7f1d1d] bg-[#1c0606] px-3.5 py-2.5 text-xs text-[#f0a5a0]">
+            {actionError}
+          </p>
+        )}
+
+        <form
+          onSubmit={handleSubmitComment}
+          className="mt-5 rounded-2xl border border-[#3d1110]/75 bg-[#080303] p-4 shadow-[0_12px_32px_rgba(0,0,0,0.65)] transition-colors focus-within:border-[#8b1814]"
+        >
+          <textarea
+            ref={textareaRef}
+            rows={3}
+            maxLength={1000}
+            value={commentText}
+            onChange={(e) => setCommentText(e.target.value)}
+            onKeyDown={(e) => {
+              if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                e.preventDefault();
+                e.currentTarget.form?.requestSubmit();
+              }
+            }}
+            placeholder={
+              user
+                ? `Viết bình luận với tư cách ${user.name}... (nhấn Enter để xuống dòng)`
+                : 'Đăng nhập Google để viết bình luận...'
+            }
+            className="min-h-[104px] w-full resize-y bg-transparent text-sm leading-relaxed text-[#f2e8e7] placeholder:text-[#756160] focus:outline-none"
+          />
+
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-[#240908] pt-3">
+            <span className="font-mono-num text-[11px] text-[#8a7574]">
+              Enter để xuống dòng · {commentText.length}/1000
+            </span>
+
+            <button
+              type="submit"
+              disabled={submitting}
+              onMouseEnter={() => audioEngine.playHover()}
+              className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-[#8b1814] px-4 text-xs font-medium text-white transition-colors hover:bg-[#a81f1a] disabled:opacity-50 whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              <Send className="h-3.5 w-3.5" />
+              <span>{submitting ? 'Đang gửi...' : 'Gửi bình luận'}</span>
+            </button>
+          </div>
+        </form>
+
+        <div className="mt-6 space-y-3.5">
+          {comments.length === 0 ? (
+            <div className="rounded-xl border border-[#2a0c0b]/70 bg-[#070303] px-5 py-8 text-center text-xs text-[#8f7978]">
+              Chưa có bình luận nào. Hãy là người đầu tiên để lại dấu ấn.
+            </div>
+          ) : (
+            comments.map((cmt) => {
+              const canDelete = user && (user.isAdmin || user.id === cmt.userId);
+              const initial = (cmt.userName.trim().charAt(0) || 'U').toUpperCase();
+              return (
+                <div
+                  key={cmt.id}
+                  className="rounded-xl border border-[#320e0d]/80 bg-[#070303] px-4 py-4 sm:px-5"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-[#4a1210] bg-[#140505] text-xs font-semibold text-[#e6b3ae]">
+                        {initial}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-[#f2e8e7]">
+                          {cmt.userName}
+                        </p>
+                        <p className="font-mono-num text-[11px] text-[#85706f]">
+                          {new Date(cmt.createdAt).toLocaleString('vi-VN', {
+                            day: '2-digit',
+                            month: '2-digit',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </p>
+                      </div>
+                    </div>
+
+                    {canDelete && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          audioEngine.playClick();
+                          onDeleteComment(character.id, cmt.id);
+                        }}
+                        aria-label="Xóa bình luận"
+                        className="shrink-0 rounded-md p-1.5 text-[#7d6968] hover:bg-[#1c0707] hover:text-[#e0564b] cursor-pointer"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-relaxed text-[#ddd0cf] sm:text-[15px]">
+                    {cmt.content}
+                  </p>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </section>
     </article>
   );
 }
